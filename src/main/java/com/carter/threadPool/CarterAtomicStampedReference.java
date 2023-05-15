@@ -1,12 +1,34 @@
 package com.carter.threadPool;
 
 import java.lang.invoke.MethodHandles;
+import java.util.concurrent.atomic.AtomicStampedReference;
 
 //解决atomic类cas操作aba问题，解决方式是在更新时设置版本号的方式来解决，每次更新就要设置一个不一样的版本号
 //修改的时候，不但要比较值有没有变，还要比较版本号对不对，这个思想在zookeeper中也有体现
 public class CarterAtomicStampedReference<V> {
-	private volatile Pair<V>		pair;
-	private static final VarHandle	PAIR;
+
+	//它里面只有一个成员变量,要做原子更新的对象会被封装为Pair对象，并赋值给pair
+	private static class Pair<T> {
+		//存储的值
+		final T reference;
+		//时间戳（版本号）
+		final int stamp;
+
+		private Pair(T reference, int stamp) {
+			this.reference = reference;
+			this.stamp = stamp;
+		}
+
+		// 创建一个新的Pair对象, 每次值变化时都会创建一个新的对象
+		static <T> Pair<T> of(T reference, int stamp) {
+			return new Pair(reference, stamp);
+		}
+	}
+
+	private volatile Pair<V> pair;
+
+	private static final sun.misc.Unsafe	UNSAFE		= sun.misc.Unsafe.getUnsafe();
+	private static final long				pairOffset	= objectFieldOffset(UNSAFE, "pair", CarterAtomicStampedReference.class);
 
 	public CarterAtomicStampedReference(V initialRef, int initialStamp) {
 		this.pair = Pair.of(initialRef, initialStamp);
@@ -14,12 +36,12 @@ public class CarterAtomicStampedReference<V> {
 
 	//获得当前对象引用
 	public V getReference() {
-		return this.pair.reference;
+		return pair.reference;
 	}
 
 	//获得当前时间戳
 	public int getStamp() {
-		return this.pair.stamp;
+		return pair.stamp;
 	}
 
 	public V get(int[] stampHolder) {
@@ -63,33 +85,18 @@ public class CarterAtomicStampedReference<V> {
 
 	// 使用`sun.misc.Unsafe`类原子地交换两个对象
 	private boolean casPair(Pair<V> cmp, Pair<V> val) {
-		return PAIR.compareAndSet(this, cmp, val);
+		return UNSAFE.compareAndSwapObject(this, pairOffset, cmp, val);
 	}
 
-	static {
+
+	static long objectFieldOffset(sun.misc.Unsafe UNSAFE, String field, Class<?> klazz) {
 		try {
-			MethodHandles.Lookup l = MethodHandles.lookup();
-			PAIR = l.findVarHandle(CarterAtomicStampedReference.class, "pair", Pair.class);
-		} catch (ReflectiveOperationException var1) {
-			throw new ExceptionInInitializerError(var1);
-		}
-	}
-
-	//它里面只有一个成员变量,要做原子更新的对象会被封装为Pair对象，并赋值给pair
-	private static class Pair<T> {
-		//存储的值
-		final T reference;
-		//时间戳（版本号）
-		final int stamp;
-
-		private Pair(T reference, int stamp) {
-			this.reference = reference;
-			this.stamp = stamp;
-		}
-
-		// 创建一个新的Pair对象, 每次值变化时都会创建一个新的对象
-		static <T> Pair<T> of(T reference, int stamp) {
-			return new Pair(reference, stamp);
+			return UNSAFE.objectFieldOffset(klazz.getDeclaredField(field));
+		} catch (NoSuchFieldException e) {
+			// Convert Exception to corresponding Error
+			NoSuchFieldError error = new NoSuchFieldError(field);
+			error.initCause(e);
+			throw error;
 		}
 	}
 }

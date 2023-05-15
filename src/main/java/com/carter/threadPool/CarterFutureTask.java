@@ -30,10 +30,7 @@ public class CarterFutureTask<V> implements RunnableFuture<V> {
 	//执行callable的线程，调用FutureTask.run()方法通过CAS设置
 	private volatile Thread runner;
 	//栈结构的等待队列，该节点是栈中的最顶层节点
-	private volatile WaitNode		waiters;
-	private static final VarHandle	STATE;
-	private static final VarHandle	RUNNER;
-	private static final VarHandle	WAITERS;
+	private volatile WaitNode waiters;
 
 	private V report(int s) throws ExecutionException {
 		Object x = this.outcome;
@@ -76,29 +73,26 @@ public class CarterFutureTask<V> implements RunnableFuture<V> {
 	public boolean cancel(boolean mayInterruptIfRunning) {
 		//如果任务状态为NEW并且成功通过CAS将state状态由NEW改为INTERRUPTING或CANCELLED（视参数而定）
 		//那么方法继续执行，否则返回false
-		if (this.state == 0 && STATE.compareAndSet(this, 0, mayInterruptIfRunning ? 5 : 4)) {
-			try {
-				if (mayInterruptIfRunning) {
-					try {
-						//获取执行run方法的线程(执行任务的线程)
-						Thread t = this.runner;
-						//调用interrupt中断
-						if (t != null) {
-							t.interrupt();
-						}
-					} finally {
-						//将state状态设为INTERRUPTED(已中断)
-						STATE.setRelease(this, 6);
+		if (!(state == NEW && UNSAFE.compareAndSwapInt(this, stateOffset, NEW, mayInterruptIfRunning ? INTERRUPTING : CANCELLED))) { return false; }
+		try {
+			if (mayInterruptIfRunning) {
+				try {
+					//获取执行run方法的线程(执行任务的线程)
+					Thread t = this.runner;
+					//调用interrupt中断
+					if (t != null) {
+						t.interrupt();
 					}
+				} finally {
+					//将state状态设为INTERRUPTED(已中断)
+					UNSAFE.putOrderedInt(this, stateOffset, INTERRUPTED);
 				}
-			} finally {
-				//激活所有在等待队列中的线程
-				this.finishCompletion();
 			}
-			return true;
-		} else {
-			return false;
+		} finally {
+			//激活所有在等待队列中的线程
+			this.finishCompletion();
 		}
+		return true;
 	}
 
 	public V get() throws InterruptedException, ExecutionException {
@@ -132,10 +126,10 @@ public class CarterFutureTask<V> implements RunnableFuture<V> {
 	//如果任务正常结束，会调用set方法：
 	protected void set(V v) {
 		//通过CAS将NEW设为COMPLETING(即将完成)状态
-		if (STATE.compareAndSet(this, 0, 1)) {
+		if (UNSAFE.compareAndSwapInt(this, stateOffset, NEW, COMPLETING)) {
 			//将任务的返回值设置为outcome
 			this.outcome = v;
-			STATE.setRelease(this, 2);
+			UNSAFE.putOrderedInt(this, stateOffset, NORMAL);
 			//激活所有等待队列中的线程
 			this.finishCompletion();
 		}
@@ -145,11 +139,11 @@ public class CarterFutureTask<V> implements RunnableFuture<V> {
 	//任务执行期间有未捕获的异常，那么会调用setException()
 	protected void setException(Throwable t) {
 		//通过CAS将state由NEW设为COMPLETING
-		if (STATE.compareAndSet(this, 0, 1)) {
+		if (UNSAFE.compareAndSwapInt(this, stateOffset, NEW, COMPLETING)) {
 			//将异常对象赋给outcome实例变量
 			this.outcome = t;
 			//将state设为EXCEPTIONAL（有异常抛出状态）
-			STATE.setRelease(this, 3);
+			UNSAFE.putOrderedInt(this, stateOffset, EXCEPTIONAL);
 			//激活所有等待队列中的线程
 			this.finishCompletion();
 		}
@@ -157,92 +151,66 @@ public class CarterFutureTask<V> implements RunnableFuture<V> {
 	}
 
 	public void run() {
-		if (state == 0 && RUNNER.compareAndSet(this, (Void) null, Thread.currentThread())) {
-			boolean var9 = false;
-			try {
-				var9 = true;
-				//获取构造时传入的Callable任务对象
-				Callable call = this.callable;
-				if (call != null) {
-					if (this.state == 0) {
-						Object result;
-						//任务是否正常完成
-						boolean finish;
-						try {
-							//调用Callable的call方法执行任务
-							result = call.call();
-							//如果没有未捕获的异常
-							finish = true;
-						} catch (Throwable var10) {
-							//没有返回值
-							result = null;
-							finish = false;
-							//设置异常对象，由调用get方法的线程处理这个异常
-							this.setException(var10);
-						}
-						if (finish) {
-							//如果正常，就设置返回值
-							this.set((V) result);
-							var9 = false;
-						} else {
-							var9 = false;
-						}
-					} else {
-						var9 = false;
-					}
-				} else {
-					var9 = false;
+		if (state != NEW || !UNSAFE.compareAndSwapObject(this, runnerOffset, null, Thread.currentThread())) { return; }
+		try {
+			//获取构造时传入的Callable任务对象
+			Callable call = this.callable;
+			if (call != null && state == NEW) {
+				Object result;
+				//任务是否正常完成
+				boolean finish;
+				try {
+					//调用Callable的call方法执行任务
+					result = call.call();
+					//如果没有未捕获的异常
+					finish = true;
+				} catch (Throwable ex) {
+					//没有返回值
+					result = null;
+					finish = false;
+					//设置异常对象，由调用get方法的线程处理这个异常
+					this.setException(ex);
 				}
-			} finally {
-				if (var9) {
-					this.runner = null;
-					//获取state状态
-					int state = this.state;
-					//如果处于任务正在中断状态，则等待直到任务处于已中断状态位置
-					if (state >= 5) {
-						this.handlePossibleCancellationInterrupt(state);
-					}
-
+				if (finish) {
+					//如果正常，就设置返回值
+					this.set((V) result);
 				}
 			}
-
+		} finally {
 			this.runner = null;
+			//获取state状态
 			int state = this.state;
-			if (state >= 5) {
+			//如果处于任务正在中断状态，则等待直到任务处于已中断状态位置
+			if (state >= INTERRUPTING) {
 				this.handlePossibleCancellationInterrupt(state);
 			}
-
 		}
 	}
 
 	protected boolean runAndReset() {
-		if (this.state == 0 && RUNNER.compareAndSet(this, (Void) null, Thread.currentThread())) {
-			boolean ran = false;
-			int s = this.state;
+		if (state != NEW || !UNSAFE.compareAndSwapObject(this, runnerOffset, null, Thread.currentThread())) { return false; }
 
-			try {
-				Callable<V> c = this.callable;
-				if (c != null && s == 0) {
-					try {
-						c.call();
-						ran = true;
-					} catch (Throwable var8) {
-						this.setException(var8);
-					}
+		boolean ran = false;
+		int s = state;
+		try {
+			Callable<V> c = this.callable;
+			if (c != null && s == 0) {
+				try {
+					c.call();
+					ran = true;
+				} catch (Throwable var8) {
+					this.setException(var8);
 				}
-			} finally {
-				this.runner = null;
-				s = this.state;
-				if (s >= 5) {
-					this.handlePossibleCancellationInterrupt(s);
-				}
-
+			}
+		} finally {
+			this.runner = null;
+			s = this.state;
+			if (s >= 5) {
+				this.handlePossibleCancellationInterrupt(s);
 			}
 
-			return ran && s == 0;
-		} else {
-			return false;
 		}
+		return ran && s == 0;
 	}
 
 	private void handlePossibleCancellationInterrupt(int s) {
@@ -257,16 +225,12 @@ public class CarterFutureTask<V> implements RunnableFuture<V> {
 
 	//激活所有在等待队列中的线程
 	private void finishCompletion() {
-		while (true) {
-			//不断获取队首
-			WaitNode q;
-			if ((q = this.waiters) != null) {
-				//通过CAS删除队列头部
-				if (!WAITERS.weakCompareAndSet(this, q, (Void) null)) {
-					continue;
-				}
+		//不断获取队首
+		for (WaitNode q; (q = waiters) != null;) {
+			//通过CAS删除队列头部
+			if (UNSAFE.compareAndSwapObject(this, waitersOffset, q, null)) {
 				//如果删除成功，那么开始遍历这个队列
-				while (true) {
+				for (;;) {
 					//获取队列结点上的等待线程
 					Thread t = q.thread;
 					if (t != null) {
@@ -279,17 +243,14 @@ public class CarterFutureTask<V> implements RunnableFuture<V> {
 					if (next == null) {
 						break;
 					}
-
 					q.next = null;
 					q = next;
 				}
+				break;
 			}
-
-			this.done();
-			//删除任务对象引用
-			this.callable = null;
-			return;
 		}
+		done();
+		callable = null;
 	}
 
 	//调用了awaitDone方法将线程加入等待队列
@@ -324,7 +285,7 @@ public class CarterFutureTask<V> implements RunnableFuture<V> {
 
 					q = new WaitNode();
 				} else if (!queued) {
-					queued = WAITERS.weakCompareAndSet(this, q.next = this.waiters, q);
+					queued = UNSAFE.compareAndSwapObject(this, waitersOffset, q.next = waiters, q);
 				}
 				//若设置有超时，则进行超时判断
 				else if (timed) {
@@ -343,7 +304,6 @@ public class CarterFutureTask<V> implements RunnableFuture<V> {
 							//返回执行状态
 							return this.state;
 						}
-
 						parkNanos = nanos - elapsed;
 					}
 
@@ -361,26 +321,17 @@ public class CarterFutureTask<V> implements RunnableFuture<V> {
 	private void removeWaiter(CarterFutureTask.WaitNode node) {
 		if (node != null) {
 			node.thread = null;
-
-			label29: while (true) {
-				CarterFutureTask.WaitNode pred = null;
-
-				CarterFutureTask.WaitNode s;
-				for (CarterFutureTask.WaitNode q = this.waiters; q != null; q = s) {
+			retry: for (;;) { // restart on removeWaiter race
+				for (WaitNode pred = null, q = waiters, s; q != null; q = s) {
 					s = q.next;
-					if (q.thread != null) {
-						pred = q;
-					} else if (pred != null) {
+					if (q.thread != null) pred = q;
+					else if (pred != null) {
 						pred.next = s;
-						if (pred.thread == null) {
-							continue label29;
-						}
-					} else if (!WAITERS.compareAndSet(this, q, s)) {
-						continue label29;
-					}
+						if (pred.thread == null) // check for race
+							continue retry;
+					} else if (!UNSAFE.compareAndSwapObject(this, waitersOffset, q, s)) continue retry;
 				}
-
-				return;
+				break;
 			}
 		}
 	}
@@ -407,16 +358,21 @@ public class CarterFutureTask<V> implements RunnableFuture<V> {
 		return super.toString() + status;
 	}
 
+	// Unsafe mechanics
+	private static final sun.misc.Unsafe	UNSAFE;
+	private static final long				stateOffset;
+	private static final long				runnerOffset;
+	private static final long				waitersOffset;
 	static {
 		try {
-			MethodHandles.Lookup l = MethodHandles.lookup();
-			STATE = l.findVarHandle(CarterFutureTask.class, "state", Integer.TYPE);
-			RUNNER = l.findVarHandle(CarterFutureTask.class, "runner", Thread.class);
-			WAITERS = l.findVarHandle(CarterFutureTask.class, "waiters", CarterFutureTask.WaitNode.class);
-		} catch (ReflectiveOperationException var1) {
-			throw new ExceptionInInitializerError(var1);
+			UNSAFE = sun.misc.Unsafe.getUnsafe();
+			Class<?> k = FutureTask.class;
+			stateOffset = UNSAFE.objectFieldOffset(k.getDeclaredField("state"));
+			runnerOffset = UNSAFE.objectFieldOffset(k.getDeclaredField("runner"));
+			waitersOffset = UNSAFE.objectFieldOffset(k.getDeclaredField("waiters"));
+		} catch (Exception e) {
+			throw new Error(e);
 		}
-		Class var2 = LockSupport.class;
 	}
 
 	static final class WaitNode {

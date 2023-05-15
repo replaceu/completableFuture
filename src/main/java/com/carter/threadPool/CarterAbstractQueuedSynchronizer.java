@@ -32,7 +32,6 @@ public class CarterAbstractQueuedSynchronizer {
 	}
 
 	static final class Node {
-
 		//AQS类里有一个Node类，对线程进行了封装
 		static final Node SHARED = new Node();
 		//独占模式下等待的标记
@@ -1645,15 +1644,6 @@ public class CarterAbstractQueuedSynchronizer {
 		}
 	}
 
-	/**
-	 * Setup to support compareAndSet. We need to natively implement
-	 * this here: For the sake of permitting future enhancements, we
-	 * cannot explicitly subclass AtomicInteger, which would be
-	 * efficient and useful otherwise. So, as the lesser of evils, we
-	 * natively implement using hotspot intrinsics API. And while we
-	 * are at it, we do the same for other CASable fields (which could
-	 * otherwise be done with atomic field updaters).
-	 */
 	private static final Unsafe	unsafe	= Unsafe.getUnsafe();
 	private static final long	stateOffset;
 	private static final long	headOffset;
