@@ -1,20 +1,20 @@
 package com.carter.threadPool;
 
-public class RejectedExecutionException extends RuntimeException{
-    private static final long serialVersionUID = -375805702767069545L;
+public class RejectedExecutionException extends RuntimeException {
+	private static final long serialVersionUID = -375805702767069545L;
 
-    public RejectedExecutionException() {
-    }
+	public RejectedExecutionException() {
+	}
 
-    public RejectedExecutionException(String message) {
-        super(message);
-    }
+	public RejectedExecutionException(String message) {
+		super(message);
+	}
 
-    public RejectedExecutionException(String message, Throwable cause) {
-        super(message, cause);
-    }
+	public RejectedExecutionException(String message, Throwable cause) {
+		super(message, cause);
+	}
 
-    public RejectedExecutionException(Throwable cause) {
-        super(cause);
-    }
+	public RejectedExecutionException(Throwable cause) {
+		super(cause);
+	}
 }

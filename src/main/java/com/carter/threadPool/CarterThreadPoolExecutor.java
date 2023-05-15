@@ -852,6 +852,7 @@ public class CarterThreadPoolExecutor extends AbstractQueuedSynchronizer {
 
 	protected void terminated() {
 	}
+
 	public static class DiscardOldestPolicy implements RejectedExecutionHandler {
 		public DiscardOldestPolicy() {
 		}
@@ -897,13 +898,14 @@ public class CarterThreadPoolExecutor extends AbstractQueuedSynchronizer {
 	//内部类Worker 继承了AQS类，可以方便的实现工作线程的中止操作
 	//实现了Runnable接口，可以将自身作为一个任务在工作线程中执行
 	private final class Worker extends AbstractQueuedSynchronizer implements Runnable {
-		private static final long	serialVersionUID	= 6138294804551838833L;
+		private static final long serialVersionUID = 6138294804551838833L;
 		//当前线程
-		final Thread				thread;
+		final Thread thread;
 		//第一个任务
-		Runnable					firstTask;
+		Runnable firstTask;
 		//总的任务
-		volatile long				completedTasks;
+		volatile long completedTasks;
+
 		//当前提交的任务firstTask作为参数传入Worker的构造方法
 		Worker(Runnable firstTask) {
 			//设置 Worker 的状态为 -1，是为了避免当前 worker在调用 runWorker方法前被中断
