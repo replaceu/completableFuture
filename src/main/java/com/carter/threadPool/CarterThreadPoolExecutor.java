@@ -14,22 +14,22 @@ public class CarterThreadPoolExecutor extends AbstractQueuedSynchronizer {
 	private static final int	COUNT_BITS	= 29;
 	private static final int	COUNT_MASK	= 536870911;
 	//线程池状态
-	//（高3位）：11100000000000000000000000000000 往左移29位
+
 	// 接受新任务并且处理阻塞队列里的任务
 	// 当创建线程池后，初始时，线程池处于RUNNING状态
 	private static final int RUNNING = -536870912;
-	//（高3位）：00000000000000000000000000000000 往左移29位
+
 	// 拒绝新任务但是处理阻塞队列里的任务
 	// 调用了shutdown()方法，则线程池处于SHUTDOWN状态
 	private static final int SHUTDOWN = 0;
-	//（高3位）：00100000000000000000000000000000 往左移29位
+
 	// 拒绝新任务并且抛弃阻塞队列里的任务，同时会中断正在处理的任务
 	// 调用了shutdownNow()方法，则线程池处于STOP状态
 	private static final int STOP = 536870912;
-	//（高3位）：01000000000000000000000000000000
+
 	//所有任务都执行完（包含阻塞队列里面任务）当前线程池活动线程为 0，将要调用 terminated 方法
 	private static final int TIDYING = 1073741824;
-	//（高3位）：01100000000000000000000000000000
+
 	//终止状态，terminated方法调用完成以后的状态
 	//任务缓存队列已经清空或执行结束后，线程池被设置为TERMINATED状态
 	private static final int TERMINATED = 1610612736;
@@ -61,7 +61,7 @@ public class CarterThreadPoolExecutor extends AbstractQueuedSynchronizer {
 	private volatile int corePoolSize;
 	//线程池最大线程数量。  volatile
 	private volatile int maximumPoolSize;
-	//饱和策略，当队列满了并且线程个数达到 maximunPoolSize 后采取的策略
+	//饱和策略，当队列满了并且线程个数达到 maximumPoolSize 后采取的策略
 	//默认 AbortPolicy （抛出异常）
 	private static final RejectedExecutionHandler	defaultHandler	= new CarterThreadPoolExecutor.AbortPolicy();
 	private static final RuntimePermission			shutdownPerm	= new RuntimePermission("modifyThread");
