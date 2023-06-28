@@ -233,43 +233,57 @@ public class CarterThreadPoolExecutor extends AbstractQueuedSynchronizer {
 			while (workerCountOf(threadPoolState) < ((core ? this.corePoolSize : this.maximumPoolSize) & 536870911)) {
 				//cas增加线程个数，同时只有一个线程成功
 				if (compareAndIncrementWorkerCount(threadPoolState)) {
-					//到这里说明cas成功了
+					//todo：2.workerCount成功+1后，创建worker，加入集合workers中，并启动worker线程
+					//用于判断新的worker实例是否已经开始执行Thread.start()
 					boolean workerStarted = false;
+					//用于判断新的worker实例是否已被添加到线程池的workers队列中
 					boolean workerAdded = false;
+					//AQS.worker
 					Worker worker = null;
 					try {
-						//创建worker
+						//创建worker实例，每个Worker对象都会针对入参firstTask来创建一个线程
 						worker = new Worker(firstTask);
+						//从worker中获得新建的线程thread
 						Thread thread = worker.thread;
 						if (thread != null) {
 							//可重入的互斥锁
 							ReentrantLock mainLock = this.mainLock;
-							//加独占锁，为了workers同步，因为可能多个线程调用了线程池的execute方法
+							//加独占锁，获得锁之后继续执行，没获得则等待直到获得锁为止
 							mainLock.lock();
 							try {
-								//重新检查线程池状态，为了避免在获取锁前调用了shutdown接口
+								//获得线程池当前的运行状态runState
 								threadPoolState = this.ctl.get();
+								/**
+								 * 满足如下任意条件，即可向线程池中添加线程
+								 * case1：线程池状态为running
+								 * case2：线程池状态为shutdown并且firstTask为null
+								 */
 								if (isRunning(threadPoolState) || runStateLessThan(threadPoolState, 536870912) && firstTask == null) {
+									//因为thread是新建的线程，还没有启动，所以如果是启动状态，则抛出异常
 									if (thread.getState() != Thread.State.NEW) { throw new IllegalThreadStateException(); }
-									//添加任务到HashSet
+									//workers保存线程池中存在的所有worker实例集合
 									this.workers.add(worker);
 									workerAdded = true;
 									int s = this.workers.size();
+									//largestPoolSize用于记录线程池中曾经存在的最大线程数量
 									if (s > this.largestPoolSize) {
 										this.largestPoolSize = s;
 									}
 								}
 							} finally {
+								//解锁操作
 								mainLock.unlock();
 							}
-							//添加成功则启动任务
 							if (workerAdded) {
+								//开启线程，执行Worker.run()
 								thread.start();
 								workerStarted = true;
 							}
 						}
 					} finally {
+						//如果没有开启线程
 						if (!workerStarted) {
+							//则往线程池中添加worker失败了
 							this.addWorkerFailed(worker);
 						}
 
@@ -905,11 +919,10 @@ public class CarterThreadPoolExecutor extends AbstractQueuedSynchronizer {
 		Runnable firstTask;
 		//总的任务
 		volatile long completedTasks;
-
 		//当前提交的任务firstTask作为参数传入Worker的构造方法
 		Worker(Runnable firstTask) {
-			//设置 Worker 的状态为 -1，是为了避免当前 worker在调用 runWorker方法前被中断
-			//当其它线程调用了线程池的 shutdownNow 时候，如果 worker 状态 >= 0 则会中断该线程
+			//设置Worker的状态为-1，是为了避免当前worker在调用runWorker方法前被中断
+			//当其它线程调用了线程池的shutdownNow时候，如果worker状态>= 0则会中断该线程
 			this.setState(-1);
 			this.firstTask = firstTask;
 			//创建一个线程
